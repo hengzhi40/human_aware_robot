@@ -38,6 +38,14 @@ class followerTurtle:
 		self.msg = geometry_msgs.msg.Twist()
 		self.rate = rospy.Rate(10)
 
+	def follow(self, trans):
+		# set angular velocity
+		self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
+
+		# set linear velocity
+		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
+		
+
 	def move(self):
 		while not rospy.is_shutdown():
 
@@ -48,11 +56,7 @@ class followerTurtle:
 				self.rate.sleep()
 				continue
 
-			# set angular velocity
-			self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
-
-			# set linear velocity
-			self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
+			self.follow(trans)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
