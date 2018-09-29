@@ -12,6 +12,7 @@ import math
 import tf2_ros
 import geometry_msgs.msg 
 import turtlesim.srv
+from math import pi
 
 class followerTurtle:
 	def __init__(self):
@@ -30,7 +31,7 @@ class followerTurtle:
 		self.turtlename = rospy.get_param('turtle', 'turtle2')
 
 		# spawn turtle at the transform specified
-		spawner(4, 4, 0, self.turtlename)
+		spawner(0.5, 0.5, pi/2, self.turtlename)
 
 		# publisher for the Twist message
 		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
