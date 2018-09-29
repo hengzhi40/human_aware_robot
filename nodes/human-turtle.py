@@ -36,8 +36,8 @@ class leaderTurtle:
 
 	def update_pose(self, data):
 		self.pose = data
-		self.pose.x = round(self.pose.x, 2)
-		self.pose.y = round(self.pose.y, 2)
+		self.pose.x = round(self.pose.x, 3)
+		self.pose.y = round(self.pose.y, 3)
 
 	def broadcast(self):
 		
