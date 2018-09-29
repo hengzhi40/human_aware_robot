@@ -36,17 +36,16 @@ class leaderTurtle:
 
 	def update_pose(self, data):
 		self.pose = data
+		self.pose.x = round(self.pose.x, 2)
+		self.pose.y = round(self.pose.y, 2)
 
-	def move(self):
-		
+	def broadcast(self):
 		
 		while not rospy.is_shutdown():
 
 			if (self.pose.x > 10 or self.pose.x < 0.5):
 				self.vel_msg.linear.x *= -1
 			
-			self.vel_publisher.publish(self.vel_msg)
-
 			self.t.header.stamp = rospy.Time.now()
 			self.t.header.frame_id = "world"
 			self.t.child_frame_id = self.turtlename
@@ -61,12 +60,14 @@ class leaderTurtle:
 			self.t.transform.rotation.w = q[3]
 
 			self.broadcaster.sendTransform(self.t)
+			self.vel_publisher.publish(self.vel_msg)
+			# print(self.vel_msg)
 			self.rate.sleep()
 
 if __name__ == '__main__':
 	try: 
 		turtle = leaderTurtle()
-		turtle.move()
+		turtle.broadcast()
 		# turtle.broadcast_transform()
 	except rospy.ROSInterruptException: pass
 	rospy.spin()

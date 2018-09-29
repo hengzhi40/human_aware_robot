@@ -31,7 +31,7 @@ class followerTurtle:
 		self.turtlename = rospy.get_param('turtle', 'turtle2')
 
 		# spawn turtle at the transform specified
-		spawner(0.5, 0.5, pi/2, self.turtlename)
+		spawner(1, 1, 0.5*pi, self.turtlename)
 
 		# publisher for the Twist message
 		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
@@ -41,7 +41,6 @@ class followerTurtle:
 	def follow(self, trans):
 		# set angular velocity
 		self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
-
 		# set linear velocity
 		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
 		
