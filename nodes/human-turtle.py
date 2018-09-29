@@ -31,8 +31,8 @@ class leaderTurtle:
 		
 		self.pose = turtlesim.msg.Pose()
 		self.vel_msg = geometry_msgs.msg.Twist()
-		self.vel_msg.linear.x = 2
-		self.rate = rospy.Rate(10)
+		self.vel_msg.linear.x = 3
+		self.rate = rospy.Rate(1)
 
 	def update_pose(self, data):
 		self.pose = data
@@ -43,8 +43,12 @@ class leaderTurtle:
 		
 		while not rospy.is_shutdown():
 
-			if (self.pose.x > 10 or self.pose.x < 0.5):
-				self.vel_msg.linear.x *= -1
+			if (self.pose.x > 9.5):
+				self.vel_msg.linear.x = -abs(self.vel_msg.linear.x)
+			elif(self.pose.x < 0.5):
+				self.vel_msg.linear.x = abs(self.vel_msg.linear.x)
+			else:
+				self.vel_msg.linear.x = self.vel_msg.linear.x
 			
 			self.t.header.stamp = rospy.Time.now()
 			self.t.header.frame_id = "world"
