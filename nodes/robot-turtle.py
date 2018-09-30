@@ -25,7 +25,7 @@ class Robot:
 		# spawn service creates multiple turtles
 		rospy.wait_for_service('spawn')
 		spawner = rospy.ServiceProxy('spawn', turtlesim.srv.Spawn)
-		spawner(5, 3, 0.5*math.pi, self.turtlename)
+		spawner(1, 1, 0.5*math.pi, self.turtlename)
 
 		# listener for human pose
 		self.transformBuffer = tf2_ros.Buffer()
@@ -58,10 +58,26 @@ class Robot:
 
 	def get_human_transform(self):
 		self.humanTransform = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
+		self.humanTransform.transform.translation.x = round(self.humanTransform.transform.translation.x, 1)
+		self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 1)
+
 
 	def get_social_cost(self):
 		# clear the existing cost map
 		self.clear_map()
+
+		tx = int(self.humanTransform.transform.translation.x * 10)
+		ty = int(self.humanTransform.transform.translation.y * 10)
+
+		# for points around human calculate cost
+		max_cost = 0
+		for ii in range(1,11):
+			x = round(ii/10.0 - 0.6, 1)
+			for jj in range(1,11):
+				y = round(jj/10.0 - 0.6, 1)
+				self.socialCost[ty][tx] = 255*self.calculate_gaussian_cost(x,y)	
+				max_cost = max(max_cost, self.socialCost[ty][tx])	
+		return max_cost
 		
 
 	def clear_map(self):
@@ -69,6 +85,16 @@ class Robot:
 			for jj in range(0, len(self.socialCost[0])):
 				self.socialCost[ii][jj] = 0
 
+
+	def calculate_gaussian_cost(self, x, y):
+		mean_x = self.humanTransform.transform.translation.x
+		mean_y = self.humanTransform.transform.translation.y 
+		variance_x = 0.04
+		variance_y = 0.0625
+		tmp = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
+		p = math.exp(-tmp)
+
+		return p
 
 	def follower(self, trans):
 		# set angular velocity
@@ -79,7 +105,7 @@ class Robot:
 
 	def go_to_goal(self, goal_x, goal_y, tolerance):
 		
-		distance = math.sqrt(math.pow((goal_x - self.pose.x), 2) + pow((goal_y - self.pose.y), 2))
+		distance = math.sqrt((goal_x - self.pose.x)**2 + (goal_y - self.pose.y)**2)
 		
 		if (distance > tolerance):
 			self.msg.linear.x = distance
@@ -100,7 +126,9 @@ class Robot:
 				continue
 
 			# self.follower(self.humanTransform)
-			self.go_to_goal(5, 8.5, 0.1)
+			m = self.get_social_cost()
+			print(m)
+			self.go_to_goal(5.5, 5.5, 0.1)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
