@@ -29,15 +29,12 @@ class Robot:
 
 		# listener for human pose
 		self.transformBuffer = tf2_ros.Buffer()
+		self.humanTransform = geometry_msgs.msg.TransformStamped()
 		listener = tf2_ros.TransformListener(self.transformBuffer)
 
 		# subscriber for self pose
 		self.subscriber = rospy.Subscriber('%s/pose' % self.turtlename, turtlesim.msg.Pose, self.update_pose)
 		self.pose = turtlesim.msg.Pose()
-
-		# subscriber for human pose
-		self.humanSubscriber = rospy.Subscriber('%s/pose' % self.human, turtlesim.msg.Pose, self.update_human_pose)
-		self.human_pose = turtlesim.msg.Pose()
 
 		# publisher for the Twist message
 		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
@@ -51,10 +48,8 @@ class Robot:
 		self.pose.y = round(self.pose.y, 3)
 
 
-	def update_human_pose(self, data):
-		self.human_pose = data
-		self.human_pose.x = round(self.human_pose.x, 3)
-		self.human_pose.y = round(self.human_pose.y, 3)
+	def get_human_transform(self):
+		self.humanTransform = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
 
 
 	def follower(self, trans):
@@ -75,23 +70,25 @@ class Robot:
 			self.msg.linear.x = 0
 			self.msg.angular.z = 0
 
+
 	def move(self):
 		while not rospy.is_shutdown():
 
 			try:
-				trans = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
+				self.get_human_transform()
 			# exception for error catching
 			except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
 				self.rate.sleep()
 				continue
 
-			# self.follower(trans)
-			self.go_to_goal(5, 8.5, 0.1)
-			# print(self.human_pose)
+			self.follower(self.humanTransform)
+			# self.go_to_goal(5, 8.5, 0.1)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
 			self.rate.sleep()
+
+
 
 if __name__ == '__main__':
 	try: 

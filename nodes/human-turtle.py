@@ -32,7 +32,7 @@ class Human:
 		self.pose = turtlesim.msg.Pose()
 		self.vel_msg = geometry_msgs.msg.Twist()
 		self.vel_msg.linear.x = 5
-		self.rate = rospy.Rate(1)
+		self.rate = rospy.Rate(10)
 
 	def update_pose(self, data):
 		self.pose = data
