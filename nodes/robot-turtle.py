@@ -24,7 +24,7 @@ class followerTurtle:
 		# spawn service creates multiple turtles
 		rospy.wait_for_service('spawn')
 		spawner = rospy.ServiceProxy('spawn', turtlesim.srv.Spawn)
-		spawner(1, 1, 0.5*math.pi, self.turtlename)
+		spawner(5, 3, 0.5*math.pi, self.turtlename)
 
 		# listener for human pose
 		self.transformBuffer = tf2_ros.Buffer()
@@ -38,7 +38,7 @@ class followerTurtle:
 		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
 		self.msg = geometry_msgs.msg.Twist()
 
-		self.rate = rospy.Rate(15)
+		self.rate = rospy.Rate(10)
 
 	def update_pose(self, data):
 		self.pose = data
@@ -52,10 +52,12 @@ class followerTurtle:
 		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
 
 	def go_to_goal(self, goal_x, goal_y, tolerance):
-		distance = sqrt(pow((goal_x - self.pose.x), 2) + pow((goal_y - self.pose.y), 2))
+		
+		distance = math.sqrt(math.pow((goal_x - self.pose.x), 2) + pow((goal_y - self.pose.y), 2))
+		
 		if (distance > tolerance):
-			self.msg.linear.x = 1.5*distance
-			self.msg.angular.z = 4 * (atan2(goal_pose.y - self.pose.y, goal_pose.x - self.pose.x) - self.pose.theta)
+			self.msg.linear.x = distance
+			self.msg.angular.z = 4 * (math.atan2(goal_y- self.pose.y, goal_x - self.pose.x) - self.pose.theta)
 		else:
 			self.msg.linear.x = 0
 			self.msg.angular.z = 0
@@ -70,7 +72,8 @@ class followerTurtle:
 				self.rate.sleep()
 				continue
 
-			self.follower(trans)
+			# self.follower(trans)
+			self.go_to_goal(5, 8.5, 0.1)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)

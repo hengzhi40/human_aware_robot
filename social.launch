@@ -1,7 +1,7 @@
 <launch>
 
 	<node pkg="turtlesim" type="turtlesim_node" name="sim"/>
-	<!--node pkg="turtlesim" type="turtle_teleop_key" name="teleop" output="screen" /-->
+	<node pkg="turtlesim" type="turtle_teleop_key" name="teleop" output="screen" />
 
 	<node name="human_turtle" pkg="human_aware_robot" type="human-turtle.py" respawn="false" output="screen">
 		<param name="turtle" type="string" value="turtle1"/>
