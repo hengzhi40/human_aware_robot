@@ -32,6 +32,14 @@ class Robot:
 		self.humanTransform = geometry_msgs.msg.TransformStamped()
 		listener = tf2_ros.TransformListener(self.transformBuffer)
 
+		# social cost around human
+		self.socialCost = []
+		tmp = []
+		for ii in range(0,100):
+			tmp.append(0)
+		for ii in range(0,100):
+			self.socialCost.append(tmp)
+
 		# subscriber for self pose
 		self.subscriber = rospy.Subscriber('%s/pose' % self.turtlename, turtlesim.msg.Pose, self.update_pose)
 		self.pose = turtlesim.msg.Pose()
@@ -50,6 +58,16 @@ class Robot:
 
 	def get_human_transform(self):
 		self.humanTransform = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
+
+	def get_social_cost(self):
+		# clear the existing cost map
+		self.clear_map()
+		
+
+	def clear_map(self):
+		for ii in range(0, len(self.socialCost)):
+			for jj in range(0, len(self.socialCost[0])):
+				self.socialCost[ii][jj] = 0
 
 
 	def follower(self, trans):
@@ -81,8 +99,8 @@ class Robot:
 				self.rate.sleep()
 				continue
 
-			self.follower(self.humanTransform)
-			# self.go_to_goal(5, 8.5, 0.1)
+			# self.follower(self.humanTransform)
+			self.go_to_goal(5, 8.5, 0.1)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
