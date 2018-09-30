@@ -4,7 +4,7 @@
 Script for listening to tf2 and following the leader turtle
 
 Haritha Murali (hm535)
-21 September 2018
+30 September 2018
 """
 
 import rospy
@@ -56,12 +56,15 @@ class Robot:
 		self.pose.y = round(self.pose.y, 3)
 
 
+	# get human pose in self (robot) frame
+	# round the x and y position to prevent "jerky" movement
 	def get_human_transform(self):
 		self.humanTransform = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
 		self.humanTransform.transform.translation.x = round(self.humanTransform.transform.translation.x, 1)
 		self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 1)
 
 
+	# calculate the social cost for points around the human
 	def get_social_cost(self):
 		# clear the existing cost map
 		self.clear_map()
@@ -69,33 +72,36 @@ class Robot:
 		tx = int(self.humanTransform.transform.translation.x * 10)
 		ty = int(self.humanTransform.transform.translation.y * 10)
 
-		# for points around human calculate cost
+		# calculate for 5 points (0.5m) before and after the human in either direction
 		max_cost = 0
 		for ii in range(1,11):
 			x = round(ii/10.0 - 0.6, 1)
 			for jj in range(1,11):
 				y = round(jj/10.0 - 0.6, 1)
+				# scale cost by a constant amplitude
 				self.socialCost[ty][tx] = 255*self.calculate_gaussian_cost(x,y)	
 				max_cost = max(max_cost, self.socialCost[ty][tx])	
-		return max_cost
+		return max_cost # for debugging, remove later
 		
 
+	# helper function to clear the map every iteration
 	def clear_map(self):
 		for ii in range(0, len(self.socialCost)):
 			for jj in range(0, len(self.socialCost[0])):
 				self.socialCost[ii][jj] = 0
 
 
+	# calculate the social cost for each point based on bivariate gaussian function
 	def calculate_gaussian_cost(self, x, y):
 		mean_x = self.humanTransform.transform.translation.x
 		mean_y = self.humanTransform.transform.translation.y 
 		variance_x = 0.04
 		variance_y = 0.0625
-		tmp = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
-		p = math.exp(-tmp)
-
+		g = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
+		p = math.exp(-g)
 		return p
 
+	# follower function from assignment #2
 	def follower(self, trans):
 		# set angular velocity
 		self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
@@ -103,12 +109,13 @@ class Robot:
 		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
 
 
+	# go to specified x and y position within a certain tolerance
 	def go_to_goal(self, goal_x, goal_y, tolerance):
 		
 		distance = math.sqrt((goal_x - self.pose.x)**2 + (goal_y - self.pose.y)**2)
 		
 		if (distance > tolerance):
-			self.msg.linear.x = distance
+			self.msg.linear.x = distance # linear speed is proportional to distance
 			self.msg.angular.z = 4 * (math.atan2(goal_y- self.pose.y, goal_x - self.pose.x) - self.pose.theta)
 		else:
 			self.msg.linear.x = 0
@@ -127,8 +134,8 @@ class Robot:
 
 			# self.follower(self.humanTransform)
 			m = self.get_social_cost()
-			print(m)
-			self.go_to_goal(5.5, 5.5, 0.1)
+			# print(m)
+			self.go_to_goal(7.5, 7.5, 0.1)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
