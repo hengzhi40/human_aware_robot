@@ -34,11 +34,18 @@ class Robot:
 
 		# social cost around human
 		self.socialCost = []
+		# heuristic cost to goal configuration
+		self.heuristicCost = []
+		# total cost
+		self.totalCost = []
+		# initialize all costs to 0
 		tmp = []
 		for ii in range(0,100):
 			tmp.append(0)
 		for ii in range(0,100):
-			self.socialCost.append(tmp)
+			self.socialCost.append(tmp[:])
+			self.heuristicCost.append(tmp[:])
+			self.totalCost.append(tmp[:])
 
 		# subscriber for self pose
 		self.subscriber = rospy.Subscriber('%s/pose' % self.turtlename, turtlesim.msg.Pose, self.update_pose)
@@ -64,42 +71,83 @@ class Robot:
 		self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 1)
 
 
-	# calculate the social cost for points around the human
-	def get_social_cost(self):
-		# clear the existing cost map
-		self.clear_map()
-
-		tx = int(self.humanTransform.transform.translation.x * 10)
-		ty = int(self.humanTransform.transform.translation.y * 10)
-
-		# calculate for 5 points (0.5m) before and after the human in either direction
-		max_cost = 0
-		for ii in range(1,11):
-			x = round(ii/10.0 - 0.6, 1)
-			for jj in range(1,11):
-				y = round(jj/10.0 - 0.6, 1)
-				# scale cost by a constant amplitude
-				self.socialCost[ty][tx] = 255*self.calculate_gaussian_cost(x,y)	
-				max_cost = max(max_cost, self.socialCost[ty][tx])	
-		return max_cost # for debugging, remove later
-		
-
 	# helper function to clear the map every iteration
-	def clear_map(self):
-		for ii in range(0, len(self.socialCost)):
-			for jj in range(0, len(self.socialCost[0])):
+	def clear_map(self, cost_map):
+		for ii in range(0, len(cost_map)):
+			for jj in range(0, len(cost_map[0])):
 				self.socialCost[ii][jj] = 0
 
+
+	# calculate the social cost for points around the human
+	def get_social_cost(self):
+		
+		# clear the existing cost map
+		self.clear_map(self.socialCost)
+
+		max_cost = 0 #for debugging, remove later
+		for ii in range(0, len(self.socialCost)):
+			y = round(ii/10.0, 2)
+			for jj in range(0, len(self.socialCost)):
+				x = round(jj/10.0, 2)
+				cost = 255.0*self.calculate_gaussian_cost(x, y)
+				self.socialCost[ii][jj] = cost
+				max_cost = max(max_cost, cost)
+		return max_cost # for debugging, remove later
+		
 
 	# calculate the social cost for each point based on bivariate gaussian function
 	def calculate_gaussian_cost(self, x, y):
 		mean_x = self.humanTransform.transform.translation.x
 		mean_y = self.humanTransform.transform.translation.y 
-		variance_x = 0.04
+		variance_x = 0.0625
 		variance_y = 0.0625
 		g = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
 		p = math.exp(-g)
 		return p
+
+
+	# calculate the heuristic cost for reachable points arond turtle - euclidean distance
+	def get_heuristic_cost(self, goal_x, goal_y):
+		self.clear_map(self.heuristicCost)
+
+		min_cost = 0 #for debugging
+		for ii in range(0, len(self.heuristicCost)):
+			y = round(ii/10.0, 2)
+			for jj in range(0, len(self.heuristicCost)):
+				x = round(jj/10.0, 2)
+				distance = math.sqrt((goal_x - x)**2 + (goal_y - y)**2)
+				self.heuristicCost[jj][ii] = 20.0*distance
+				min_cost = min(min_cost, self.heuristicCost[jj][ii])
+		return min_cost
+		
+
+	def get_total_cost(self):
+		self.clear_map(self.totalCost)
+		for ii in range(0, len(self.totalCost)):
+			for jj in range(0, len(self.totalCost)):
+				self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj]
+
+	def search_neighbours(self):
+		# for points around turtle pick the nn with lowest cost
+		tx = min(max(int(self.pose.x * 10) - 11, 0),78)
+		ty = min(max(int(self.pose.y * 10) - 11, 0),78)
+		
+		min_cost = 1e6
+		min_x = tx
+		min_y = ty
+		for ii in range(1,21):
+			x = tx + ii
+			for jj in range(1, 21):
+				y = ty + jj
+				if (self.totalCost[x][y] < min_cost):
+					min_cost = self.totalCost[x][y]
+					min_x = x 
+					min_y = y 
+		
+		next_x = float(min_y/10.0)
+		next_y = float(min_x/10.0)
+		return (next_x, next_y, min_cost)
+
 
 	# follower function from assignment #2
 	def follower(self, trans):
@@ -134,8 +182,12 @@ class Robot:
 
 			# self.follower(self.humanTransform)
 			m = self.get_social_cost()
-			# print(m)
-			self.go_to_goal(7.5, 7.5, 0.1)
+			n = self.get_heuristic_cost(7.5, 7.5)
+			self.get_total_cost()
+			(next_x, next_y, min_cost) = self.search_neighbours()
+			self.go_to_goal(next_x, next_y, 0.01)
+			# self.go_to_goal(7.5, 7.5, 0.01)
+			print(min_cost)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
