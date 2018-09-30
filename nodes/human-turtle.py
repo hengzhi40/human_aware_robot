@@ -14,9 +14,9 @@ import geometry_msgs.msg
 import turtlesim.msg 
 from math import pi
 
-class leaderTurtle:
+class Human:
 	def __init__ (self):
-		rospy.init_node('turtle_broadcaster', anonymous = True)
+		rospy.init_node('human_broadcaster', anonymous = True)
 
 		# create the transform broadcaster object that will be used to send transformations
 		self.broadcaster = tf2_ros.TransformBroadcaster()
@@ -70,7 +70,7 @@ class leaderTurtle:
 
 if __name__ == '__main__':
 	try: 
-		turtle = leaderTurtle()
+		turtle = Human()
 		turtle.broadcast()
 		# turtle.broadcast_transform()
 	except rospy.ROSInterruptException: pass

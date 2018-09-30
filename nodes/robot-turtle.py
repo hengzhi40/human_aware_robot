@@ -14,12 +14,13 @@ import geometry_msgs.msg
 import turtlesim.srv
 import turtlesim.msg
 
-class followerTurtle:
+class Robot:
 	def __init__(self):
-		rospy.init_node('turtle_listener')
+		rospy.init_node('robot_listener')
 
 		# get parameters from the parameter server
 		self.turtlename = rospy.get_param('turtle', 'turtle2')
+		self.human = rospy.get_param('turtle', 'turtle1')
 
 		# spawn service creates multiple turtles
 		rospy.wait_for_service('spawn')
@@ -34,6 +35,10 @@ class followerTurtle:
 		self.subscriber = rospy.Subscriber('%s/pose' % self.turtlename, turtlesim.msg.Pose, self.update_pose)
 		self.pose = turtlesim.msg.Pose()
 
+		# subscriber for human pose
+		self.humanSubscriber = rospy.Subscriber('%s/pose' % self.human, turtlesim.msg.Pose, self.update_human_pose)
+		self.human_pose = turtlesim.msg.Pose()
+
 		# publisher for the Twist message
 		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
 		self.msg = geometry_msgs.msg.Twist()
@@ -45,11 +50,19 @@ class followerTurtle:
 		self.pose.x = round(self.pose.x, 3)
 		self.pose.y = round(self.pose.y, 3)
 
+
+	def update_human_pose(self, data):
+		self.human_pose = data
+		self.human_pose.x = round(self.human_pose.x, 3)
+		self.human_pose.y = round(self.human_pose.y, 3)
+
+
 	def follower(self, trans):
 		# set angular velocity
 		self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
 		# set linear velocity
 		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
+
 
 	def go_to_goal(self, goal_x, goal_y, tolerance):
 		
@@ -74,6 +87,7 @@ class followerTurtle:
 
 			# self.follower(trans)
 			self.go_to_goal(5, 8.5, 0.1)
+			print(self.human_pose)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
@@ -81,7 +95,7 @@ class followerTurtle:
 
 if __name__ == '__main__':
 	try: 
-		turtle = followerTurtle()
+		turtle = Robot()
 		turtle.move()
 	except rospy.ROSInterruptException: pass
 	rospy.spin()
