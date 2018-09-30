@@ -87,7 +87,7 @@ class Robot:
 
 			# self.follower(trans)
 			self.go_to_goal(5, 8.5, 0.1)
-			print(self.human_pose)
+			# print(self.human_pose)
 
 			# publish the velocity message
 			self.publisher.publish(self.msg)
