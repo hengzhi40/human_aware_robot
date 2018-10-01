@@ -11,6 +11,6 @@
 		<param name="turtle" type="string" value="turtle2" />
 	</node>
 
-	<node name="listener" pkg="human_aware_robot" type="robot-turtle.py" output="screen"/>
+	<node name="listener" pkg="human_aware_robot" type="robot-turtle-2.py" output="screen"/>
 
 </launch>
