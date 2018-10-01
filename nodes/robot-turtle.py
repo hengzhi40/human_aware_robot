@@ -76,7 +76,7 @@ class Robot:
 	def clear_map(self, cost_map):
 		for ii in range(0, len(cost_map)):
 			for jj in range(0, len(cost_map[0])):
-				self.socialCost[ii][jj] = 0
+				cost_map[ii][jj] = 0
 
 
 	# calculate the social cost for points around the human

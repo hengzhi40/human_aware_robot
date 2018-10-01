@@ -27,10 +27,10 @@ class Robot:
         spawner = rospy.ServiceProxy('spawn', Spawn)
         spawner(1, 1, 0.5*math.pi, self.robot)
 
-        # listener for human pose
-        self.transformBuffer = tf2_ros.Buffer()
-        self.humanTransform = TransformStamped()
-        listener = tf2_ros.TransformListener(self.transformBuffer)
+        # # listener for human pose
+        # self.transformBuffer = tf2_ros.Buffer()
+        # self.humanTransform = TransformStamped()
+        # listener = tf2_ros.TransformListener(self.transformBuffer)
 
         # subscriber for self pose
         self.pose = Pose()
@@ -79,10 +79,10 @@ class Robot:
 
     # get human pose in self (robot) frame
 	# round the x and y position to prevent "jerky" movement
-    def get_human_transform(self):
-        self.humanTransform = self.transformBuffer.lookup_transform(self.robot, 'turtle1', rospy.Time())
-        self.humanTransform.transform.translation.x = round(self.humanTransform.transform.translation.x, 3)
-        self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 3)
+    # def get_human_transform(self):
+    #     self.humanTransform = self.transformBuffer.lookup_transform(self.robot, 'turtle1', rospy.Time())
+    #     self.humanTransform.transform.translation.x = round(self.humanTransform.transform.translation.x, 3)
+    #     self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 3)
 
     def get_social_cost(self):
         for ii in range(0, len(self.socialCost)):
@@ -91,6 +91,11 @@ class Robot:
                 x = float(jj/10.0)
                 self.socialCost[ii][jj] = 255.0*self.calculate_gaussian(x, y)
     
+    def clear_map(self, cost_map):
+        for ii in range(0, len(cost_map)):
+            for jj in range(0, len(cost_map[0])):
+                cost_map[ii][jj] = 0
+
     def calculate_gaussian(self, x, y):
         mean_x = self.human_pose.x #self.humanTransform.transform.translation.x
         mean_y = self.human_pose.y #self.humanTransform.transform.translation.y 
@@ -114,8 +119,8 @@ class Robot:
 				self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj]
 
     def get_sub_goal(self):
-        tx = min(max(int(self.pose.x * 10) - 16, 0), 82)
-        ty = min(max(int(self.pose.y * 10) - 16, 0), 82)
+        tx = min(max(int(self.pose.x * 10) - 16, 0), 68)
+        ty = min(max(int(self.pose.y * 10) - 16, 0), 68)
 
         min_cost = 1e6
         min_x = tx
@@ -137,7 +142,7 @@ class Robot:
     def go_to_goal(self, goal_x, goal_y):
         distance = self.calculate_euclidean(goal_x, goal_y)
         self.msg.linear.x = distance # linear speed is proportional to distance
-        self.msg.angular.z = 4 * (math.atan2(goal_y- self.pose.y, goal_x - self.pose.x) - self.pose.theta)
+        self.msg.angular.z = 4*(math.atan2(goal_y- self.pose.y, goal_x - self.pose.x) - self.pose.theta)
     
     def stop_moving(self):
 		self.msg.linear.x = 0
@@ -151,9 +156,9 @@ if __name__ == '__main__':
     turtle = Robot()
     rospy.sleep(2.0)
     # set goals
-    goal_x = 8.5
-    goal_y = 8.5
-    tolerance = 0.01
+    goal_x = 5.5
+    goal_y = 5.5
+    tolerance = 0.05
 
     # calculate corresponding heuristic cost
     turtle.get_heuristic_cost(goal_x, goal_y)
@@ -168,6 +173,13 @@ if __name__ == '__main__':
     try:
         # while not reached goal
         while (not turtle.goal_flag):
+
+            if ( abs(goal_x - turtle.human_pose.x) < 0.1 and abs(goal_y - turtle.human_pose.y) < 0.1):
+                print('changing goal as human is too close')
+                goal_x -= 0.5
+                goal_y -= 0.5
+                # update heuristic costs
+                turtle.get_heuristic_cost(goal_x, goal_y)
 
             # if subgoal reached, update subgoal
             distance = turtle.calculate_euclidean(sub_x, sub_y)
