@@ -25,7 +25,7 @@ class Robot:
         # spawn service to create multiple turtles
         rospy.wait_for_service('spawn')
         spawner = rospy.ServiceProxy('spawn', Spawn)
-        spawner(1, 1, 0.5*math.pi, self.robot)
+        spawner(5.5, 1, 0.5*math.pi, self.robot)
 
         # # listener for human pose
         # self.transformBuffer = tf2_ros.Buffer()
@@ -63,7 +63,7 @@ class Robot:
         self.goal_flag = False
         self.subgoal_flag = False
         
-        self.rate = rospy.Rate(20)
+        self.rate = rospy.Rate(10)
         
     def update_pose(self, data):
         self.pose = data 
@@ -74,8 +74,7 @@ class Robot:
         self.human_pose = data
         self.human_pose.x = round(self.human_pose.x, 3)
         self.human_pose.y = round(self.human_pose.y, 3)
-        self.get_social_cost()
-        self.get_total_cost()
+
 
     # get human pose in self (robot) frame
 	# round the x and y position to prevent "jerky" movement
@@ -111,7 +110,7 @@ class Robot:
             for jj in range(0, len(self.heuristicCost[0])):
                 x = float(jj/10.0)
                 distance = math.sqrt((goal_x - x)**2 + (goal_y - y)**2)
-                self.heuristicCost[jj][ii] = 20.0*distance
+                self.heuristicCost[ii][jj] = 20.0*distance
     
     def get_total_cost(self):
         for ii in range(0, len(self.totalCost)):
@@ -157,47 +156,49 @@ if __name__ == '__main__':
     rospy.sleep(2.0)
     # set goals
     goal_x = 5.5
-    goal_y = 5.5
-    tolerance = 0.05
+    goal_y = 8.5
+    tolerance = 0.025
 
     # calculate corresponding heuristic cost
     turtle.get_heuristic_cost(goal_x, goal_y)
-
-    # get first subgoal
-    #get total cost
+    turtle.get_social_cost()
     turtle.get_total_cost()
 
     (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
     print(sub_x, sub_y, sub_cost)
 
     try:
-        # while not reached goal
-        while (not turtle.goal_flag):
+        while not rospy.is_shutdown():
+            if not turtle.goal_flag:
+                # check goal wrt human
+                if( abs(goal_x - turtle.human_pose.x) < 0.5 and abs(goal_y - turtle.human_pose.y) < 0.5):
+                    print('changing goal as human is too close')
+                    goal_x -= 0.7
+                    goal_y -= 0.7
+                    # update heuristic costs
+                    turtle.get_heuristic_cost(goal_x, goal_y)
+                    turtle.get_total_cost()
+                
+                # if subgoal reached, update subgoal
+                distance = turtle.calculate_euclidean(sub_x, sub_y)
+                if (distance < tolerance):
+                    (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
+                    print(sub_x, sub_y, sub_cost)
+                    # print(distance)
+                
+                turtle.get_social_cost()
+                turtle.get_total_cost()
+                turtle.go_to_goal(sub_x, sub_y)
+                turtle.publisher.publish(turtle.msg)
 
-            if ( abs(goal_x - turtle.human_pose.x) < 0.1 and abs(goal_y - turtle.human_pose.y) < 0.1):
-                print('changing goal as human is too close')
-                goal_x -= 0.5
-                goal_y -= 0.5
-                # update heuristic costs
-                turtle.get_heuristic_cost(goal_x, goal_y)
-
-            # if subgoal reached, update subgoal
-            distance = turtle.calculate_euclidean(sub_x, sub_y)
-            if (distance < tolerance):
-                (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
-                print(sub_x, sub_y, sub_cost)
-            
-            turtle.go_to_goal(sub_x, sub_y)
-            turtle.publisher.publish(turtle.msg)
-
-            # if goal reached quit
-            distance_goal = turtle.calculate_euclidean(goal_x, goal_y)
-            if(distance_goal < tolerance):
-                turtle.goal_flag = True
+                # if goal reached quit
+                distance_goal = turtle.calculate_euclidean(goal_x, goal_y)
+                if(distance_goal < tolerance):
+                    turtle.goal_flag = True
+                # else: print(distance_goal)
+                turtle.rate.sleep()
+            else:
                 rospy.spin()
-            
-            turtle.rate.sleep()
-
     except rospy.ROSInterruptException: 
         pass
         rospy.spin()
