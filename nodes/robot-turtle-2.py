@@ -171,40 +171,24 @@ if __name__ == '__main__':
         # while not reached goal
         while (not turtle.goal_flag):
 
-            # check if goal reached     
-            distance = turtle.calculate_euclidean(goal_x, goal_y)
-
-            if(distance < tolerance):
-                turtle.goal_flag = True
-                continue
-
-            # while not reached sub goal
-            while (not turtle.subgoal_flag):
-                
-                # check if subgoal reached
-                distance = turtle.calculate_euclidean(sub_x, sub_y)
-
-                if (distance < tolerance):
-                    turtle.stop_moving()
-                    turtle.subgoal_flag = True
-                    turtle.publisher.publish(turtle.msg)
-                    turtle.rate.sleep()
-                
-                else:
-                    # go to subgoal
-                    turtle.go_to_goal(sub_x, sub_y)
-                    turtle.publisher.publish(turtle.msg)
-                    turtle.rate.sleep()
-
-            # update subgoal if subgoal reached
-            if(turtle.subgoal_flag):
+            # if subgoal reached, update subgoal
+            distance = turtle.calculate_euclidean(sub_x, sub_y)
+            if (distance < tolerance):
                 turtle.get_social_cost()
                 turtle.get_total_cost()
                 (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
                 print(sub_x, sub_y, sub_cost)
-                turtle.subgoal_flag = False
-    
+            
+            turtle.go_to_goal(sub_x, sub_y)
+            turtle.publisher.publish(turtle.msg)
+            turtle.rate.sleep()
+
+            # if goal reached quit
+            distance_goal = turtle.calculate_euclidean(goal_x, goal_y)
+            if(distance_goal < tolerance):
+                turtle.goal_flag = True
+                rospy.spin()
+
     except rospy.ROSInterruptException: 
         pass
-    
-    rospy.spin()
+        rospy.spin()
