@@ -32,6 +32,10 @@ class Robot:
 
         self.human_pose = Pose()
         self.human_subscriber = rospy.Subscriber('%s/pose' %self.human, Pose, self.update_human_pose)
+        self.human_pose_history = [ [5, 5, 5, 5, 5], [5, 5, 5, 5, 5]]
+        self.time_stamps = [ -0.4, -0.3, -0.2, -0.1, 0 ]
+        self.slope = [ 0, 0 ]
+        self.intercept = [5.5, 5.5]
 
         self.vel_msg = Twist()
         self.publisher = rospy.Publisher('%s/cmd_vel' % self.robot, Twist, queue_size = 1)
@@ -41,8 +45,6 @@ class Robot:
         self.socialCost = []
         # heuristic cost for goal configuration
         self.heuristicCost = []
-        # distance cost from self
-        self.distanceCost = []
         # total cost
         self.totalCost = []
 
@@ -53,7 +55,6 @@ class Robot:
         for ii in range(0, 100):
             self.socialCost.append(tmp[:])
             self.heuristicCost.append(tmp[:])
-            self.distanceCost.append(tmp[:])
             self.totalCost.append(tmp[:])
 
         # direction of window cleaning -> left to right or right to left?
@@ -86,6 +87,37 @@ class Robot:
         self.human_pose = data
         self.human_pose.x = round(self.human_pose.x, 3)
         self.human_pose.y = round(self.human_pose.y, 3)
+        self.update_human_pose_history()
+        self.predict_linear_trajectory()
+
+    # update record of human poses
+    def update_human_pose_history(self):
+        self.human_pose_history[0].pop(0)
+        self.human_pose_history[1].pop(0)
+        self.human_pose_history[0].append(self.human_pose.x)
+        self.human_pose_history[1].append(self.human_pose.y)
+
+    # function to predict next human pose
+    def predict_linear_trajectory(self):
+        xbar = sum(self.human_pose_history[0]) / len(self.human_pose_history[0])
+        ybar = sum(self.human_pose_history[1]) / len(self.human_pose_history[1])
+        tbar = sum(self.time_stamps) / len(self.time_stamps)
+
+        xnum = 0
+        ynum = 0
+        den = 0
+        for i in range(0, len(self.time_stamps)):
+            t1 = self.time_stamps[i] - tbar
+            tx = self.human_pose_history[0][i] - xbar
+            ty = self.human_pose_history[1][i] - ybar
+            xnum += t1*tx
+            ynum += t1*ty
+            den += t1*t1
+        
+        mx = xnum/den
+        my = ynum/den
+        self.slope = [mx, my]
+        self.intercept = [xbar - mx*tbar, ybar - my*tbar]
 
     # function to clear cost matrices
     def clear_map(self, cost_map):
@@ -99,12 +131,10 @@ class Robot:
             y = float(ii/10.0)
             for jj in range(0, len(self.socialCost[0])):
                 x = float(jj/10.0)
-                self.socialCost[ii][jj] = 255.0*self.calculate_gaussian(x, y)
+                self.socialCost[ii][jj] = 255.0*self.calculate_gaussian(x, y, self.human_pose.x, self.human_pose.y)
 
     # gaussian function
-    def calculate_gaussian(self, x, y):
-        mean_x = self.human_pose.x #self.humanTransform.transform.translation.x
-        mean_y = self.human_pose.y #self.humanTransform.transform.translation.y 
+    def calculate_gaussian(self, x, y, mean_x, mean_y):
         variance_x = 0.0625
         variance_y = 0.0625
         g = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
@@ -120,20 +150,11 @@ class Robot:
                 distance = math.sqrt((self.current_goal[0] - x)**2 + (self.current_goal[1] - y)**2)
                 self.heuristicCost[ii][jj] = 20.0*distance
 
-    # function to calculate euclidean distance cost
-    def get_distance_cost(self):
-        for ii in range(0, len(self.distanceCost)):
-            y = float(ii/10.0)
-            for jj in range(0, len(self.distanceCost[0])):
-                x = float(jj/10.0)
-                distance = math.sqrt((self.robot_pose.x - x)**2 +  (self.robot_pose.y - y)**2)
-                self.distanceCost[ii][jj] = 1600.0*distance
-
     # function to sum all costs
     def get_total_cost(self):
         for ii in range(0, len(self.totalCost)):
             for jj in range(0, len(self.totalCost[0])):
-                self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj] + self.distanceCost[ii][jj]
+                self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj] 
 
     # function to search for next best subgoal
     def get_sub_goal(self):
@@ -225,4 +246,3 @@ if __name__ == '__main__':
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
-    
