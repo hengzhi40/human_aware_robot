@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
 """
-Script for listening to tf2 and following the leader turtle
+Program for socially navigating robots
 
 Haritha Murali (hm535)
-30 September 2018
+11 October 2018
 """
 
 import rospy
 import math
-import tf2_ros
+# import tf2_ros
 from geometry_msgs.msg import Twist, TransformStamped
 from turtlesim.msg import Pose
 from turtlesim.srv import Spawn
@@ -48,8 +48,11 @@ class Robot:
         self.socialCost = []
         # heuristic cost for goal configuration
         self.heuristicCost = []
+        # distance cost from self
+        self.distanceCost = []
         # total cost
         self.totalCost = []
+
         # initialize all costs to 0
         tmp = []
         for ii in range(0, 100):
@@ -57,6 +60,7 @@ class Robot:
         for ii in range(0, 100):
             self.socialCost.append(tmp[:])
             self.heuristicCost.append(tmp[:])
+            self.distanceCost.append(tmp[:])
             self.totalCost.append(tmp[:])
 
         
@@ -74,7 +78,6 @@ class Robot:
         self.human_pose = data
         self.human_pose.x = round(self.human_pose.x, 3)
         self.human_pose.y = round(self.human_pose.y, 3)
-
 
     # get human pose in self (robot) frame
 	# round the x and y position to prevent "jerky" movement
@@ -111,11 +114,20 @@ class Robot:
                 x = float(jj/10.0)
                 distance = math.sqrt((goal_x - x)**2 + (goal_y - y)**2)
                 self.heuristicCost[ii][jj] = 20.0*distance
+
+    def get_distance_cost(self):
+        for ii in range(0, len(self.distanceCost)):
+            y = float(ii/10.0)
+            for jj in range(0, len(self.distanceCost[0])):
+                x = float(jj/10.0)
+                distance = math.sqrt((self.pose.x - x)**2 +  (self.pose.y - y)**2)
+                self.distanceCost[ii][jj] = 50.0*distance
+
     
     def get_total_cost(self):
         for ii in range(0, len(self.totalCost)):
 			for jj in range(0, len(self.totalCost[0])):
-				self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj]
+				self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj] + self.distanceCost[ii][jj]
 
     def get_sub_goal(self):
         tx = min(max(int(self.pose.x * 10) - 16, 0), 68)
@@ -187,6 +199,7 @@ if __name__ == '__main__':
                     # print(distance)
                 
                 turtle.get_social_cost()
+                # turtle.get_distance_cost()
                 turtle.get_total_cost()
                 turtle.go_to_goal(sub_x, sub_y)
                 turtle.publisher.publish(turtle.msg)
