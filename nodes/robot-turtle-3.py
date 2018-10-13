@@ -24,7 +24,7 @@ class Robot:
         # spawn to get multiple turtles
         rospy.wait_for_service('spawn')
         spawner = rospy.ServiceProxy('spawn', Spawn)
-        spawner(0, 0, 0.5*math.pi, self.robot)
+        spawner(0.5, 0.5, 0.5*math.pi, self.robot)
 
         # subscribers and publishers
         self.robot_pose = Pose()
@@ -57,23 +57,21 @@ class Robot:
             self.heuristicCost.append(tmp[:])
             self.totalCost.append(tmp[:])
 
-        # direction of window cleaning -> left to right or right to left?
-        self.direction = True
-
         # trajectory for left to right cleaning
-        self.rightward_trajectory = [ [0.5,0.5], [0.5,9.8], [2,9.8], [2,0.5], [5.2,0.5], [5.4,9.8], [6,9.8], [6,0.5], [8,0.5], [8,9.8], [9.8,9.8]]
-
-        # trajectory for right to left cleaning
-        self.leftward_trajectory = [[10,10], [10,0], [8,0], [8,10], [6,10], [6,0], [4,0], [4,10], [2,10], [2,0], [0,0]]
+        self.rightward_trajectory = [ [0.5, 1.0], [0.5,9.8], [2,9.8], [2,0.5], [5,0.5], [5,9.8], [6,9.8], [6,0.5], [8,0.5], [8,9.8], [9.8,9.8], [9.8, 0.5]]
 
         # variable for current goal
         self.current_counter = 0
         self.current_goal = self.rightward_trajectory[self.current_counter]
 
-        # variable for current subgoal
+        # variable for current subgoal - initialize to first goal
         self.current_subgoal = self.rightward_trajectory[self.current_counter]
 
+        # distance to human flag
+        self.distance_flag = False
+
         # rospy rate
+        self.start_time = rospy.get_time()
         self.rate = rospy.Rate(10)
 
     # callback function to update self pose
@@ -94,8 +92,10 @@ class Robot:
     def update_human_pose_history(self):
         self.human_pose_history[0].pop(0)
         self.human_pose_history[1].pop(0)
+        self.time_stamps.pop(0)
         self.human_pose_history[0].append(self.human_pose.x)
         self.human_pose_history[1].append(self.human_pose.y)
+        self.time_stamps.append(rospy.get_time() - self.start_time)
 
     # function to predict next human pose
     def predict_linear_trajectory(self):
@@ -131,13 +131,29 @@ class Robot:
             y = float(ii/10.0)
             for jj in range(0, len(self.socialCost[0])):
                 x = float(jj/10.0)
-                self.socialCost[ii][jj] = 255.0*self.calculate_gaussian(x, y, self.human_pose.x, self.human_pose.y)
+                
+                cp0 = 255.0*self.calculate_gaussian(x, y, self.human_pose.x, self.human_pose.y, 0.0625)
+                (xp, yp) = self.predict_trajectory(0.1)
+                cp1 = 0.5*255.0*self.calculate_gaussian(x, y, xp, yp, 0.09375)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp2 = (0.5**2)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.140625)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp3 = (0.5**3)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.210)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp4 = (0.5**4)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.315)
+
+                self.socialCost[ii][jj] = cp0 + cp1 + cp2 + cp3 + cp4
+                
+    def predict_trajectory(self, time_in_sec):
+        now = rospy.get_time() - self.start_time
+        future = now + time_in_sec
+        x_predict = self.slope[0]*future + self.intercept[0]
+        y_predict = self.slope[1]*future + self.intercept[1]
+        return(x_predict, y_predict)
 
     # gaussian function
-    def calculate_gaussian(self, x, y, mean_x, mean_y):
-        variance_x = 0.0625
-        variance_y = 0.0625
-        g = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
+    def calculate_gaussian(self, x, y, mean_x, mean_y, variance):
+        g = (((x-mean_x)**2)/(2*variance)) + (((y-mean_y)**2)/(2*variance)) 
         p = math.exp(-g)
         return p
 
@@ -180,26 +196,26 @@ class Robot:
 
     # function to update current goal
     def get_next_goal(self):
-        if(self.direction):
-            self.current_goal = self.rightward_trajectory[self.current_counter]
-        elif(not self.direction):
-            self.current_goal = self.leftward_trajectory[self.current_counter]
+        self.current_goal = self.rightward_trajectory[self.current_counter]
         
         self.current_counter += 1
-        if self.current_counter > 10:
-            self.current_counter = 10
-            # self.direction = not self.direction      
+        if self.current_counter > 11:
+            self.current_counter = 0    
 
     # function to calculate distance to current goal
     def calculate_euclidean(self, goal_x, goal_y):
         distance = math.sqrt((goal_x - self.robot_pose.x)**2 + (goal_y - self.robot_pose.y)**2)
         return distance       
 
+    def calculate_to_human(self):
+        distance = math.sqrt((self.human_pose.x - self.robot_pose.x)**2 + (self.human_pose.y - self.robot_pose.y)**2)
+        return distance
+
     # pid controller to move turtle to (sub)goal
     def go_to_goal(self):
         # print('going to goal')
         distance =  math.sqrt((self.current_subgoal[0] - self.robot_pose.x)**2 + (self.current_subgoal[1] - self.robot_pose.y)**2)
-        self.vel_msg.linear.x = distance # linear speed is proportional to distance
+        self.vel_msg.linear.x = min(1.0, distance) # linear speed is proportional to distance
         self.vel_msg.angular.z = 4*(math.atan2(self.current_subgoal[1]- self.robot_pose.y, self.current_subgoal[0] - self.robot_pose.x) - self.robot_pose.theta)
 
     # set velocity to zero if close to (sub)goal
@@ -211,38 +227,64 @@ if __name__ == '__main__':
     # create instance of Robot Turtle
     turtle = Robot()
     rospy.sleep(2.0)
-    tolerance = 0.025
+    tolerance = 0.05
+    thresh_human = 2.5
+    thresh_cost = 10000
 
     turtle.get_heuristic_cost()
     turtle.get_social_cost()
     turtle.get_total_cost()
 
-    (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
-    print(turtle.current_subgoal)
-
     try:
+        counter = 1
         while not rospy.is_shutdown():
+            
+            # else: turtle.distance_flag = False
+
             distance_goal = turtle.calculate_euclidean(turtle.current_goal[0], turtle.current_goal[1])
             if(distance_goal > tolerance):
-                distance_subgoal = turtle.calculate_euclidean(turtle.current_subgoal[0], turtle.current_subgoal[1])
-                # print(turtle.current_goal)
-                if (distance_subgoal < tolerance):
-                    (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
-                    turtle.current_subgoal[0] = sub_x
-                    turtle.current_subgoal[1] = sub_y
-                    print(turtle.current_subgoal)
-                
-                turtle.get_social_cost()
-                turtle.get_total_cost()
-                turtle.go_to_goal()
-                turtle.publisher.publish(turtle.vel_msg)
-                turtle.rate.sleep()
-            
+                if(turtle.distance_flag):
+
+                    if(counter%10 == 0):
+                        turtle.stop_moving()
+                        turtle.publisher.publish(turtle.vel_msg)
+                        turtle.get_social_cost()
+                        turtle.get_total_cost()
+                        distance_human = turtle.calculate_to_human()
+                        if(distance_human > thresh_human):
+                            turtle.distance_flag = False
+                        turtle.rate.sleep()
+
+                    else:
+                        (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
+                        turtle.current_subgoal[0] = sub_x
+                        turtle.current_subgoal[1] = sub_y
+                        print(sub_x, sub_y, sub_cost)
+                        if (sub_cost >= thresh_cost):
+                            turtle.stop_moving()
+                        else: turtle.go_to_goal()
+                        turtle.publisher.publish(turtle.vel_msg) 
+                        turtle.rate.sleep()
+                else:
+                    turtle.current_subgoal = turtle.current_goal
+
+                    turtle.go_to_goal()
+                    turtle.publisher.publish(turtle.vel_msg) 
+                    distance_human = turtle.calculate_to_human()
+                    if(distance_human <= thresh_human):
+                        turtle.distance_flag = True
+                    turtle.rate.sleep()
+
             elif(distance_goal <= tolerance):
                 turtle.get_next_goal()
                 turtle.get_heuristic_cost()
                 turtle.rate.sleep()
             
+            counter += 1
+            if counter >= 10:
+                counter = 0
+        
         rospy.spin()
+    
     except rospy.ROSInterruptException:
         pass

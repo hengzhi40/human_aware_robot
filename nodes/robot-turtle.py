@@ -1,222 +1,290 @@
 #!/usr/bin/env python
 
 """
-Script for listening to tf2 and following the leader turtle
+Program for socially navigating robots
 
 Haritha Murali (hm535)
-30 September 2018
+11 October 2018
 """
 
 import rospy
 import math
-import tf2_ros
-import geometry_msgs.msg 
-import turtlesim.srv
-import turtlesim.msg
+from geometry_msgs.msg import Twist, TransformStamped
+from turtlesim.msg import Pose
+from turtlesim.srv import Spawn
 
 class Robot:
-	def __init__(self):
-		rospy.init_node('robot_listener')
+    def __init__(self):
+        rospy.init_node('robot_turtle')
 
-		# get parameters from the parameter server
-		self.turtlename = rospy.get_param('turtle', 'turtle2')
-		self.human = rospy.get_param('turtle', 'turtle1')
+        # get parameters from server
+        self.robot = rospy.get_param('turtle', 'turtle2')
+        self.human = rospy.get_param('turtle', 'turtle1')
 
-		# spawn service creates multiple turtles
-		rospy.wait_for_service('spawn')
-		spawner = rospy.ServiceProxy('spawn', turtlesim.srv.Spawn)
-		spawner(1, 1, 0.5*math.pi, self.turtlename)
+        # spawn to get multiple turtles
+        rospy.wait_for_service('spawn')
+        spawner = rospy.ServiceProxy('spawn', Spawn)
+        spawner(0.5, 0.5, 0.5*math.pi, self.robot)
 
-		# listener for human pose
-		self.transformBuffer = tf2_ros.Buffer()
-		self.humanTransform = geometry_msgs.msg.TransformStamped()
-		listener = tf2_ros.TransformListener(self.transformBuffer)
+        # subscribers and publishers
+        self.robot_pose = Pose()
+        self.robot_subscriber = rospy.Subscriber('%s/pose' %self.robot, Pose, self.update_robot_pose)
 
-		# social cost around human
-		self.socialCost = []
-		# heuristic cost to goal configuration
-		self.heuristicCost = []
-		# total cost
-		self.totalCost = []
-		# initialize all costs to 0
-		tmp = []
-		for ii in range(0,100):
-			tmp.append(0)
-		for ii in range(0,100):
-			self.socialCost.append(tmp[:])
-			self.heuristicCost.append(tmp[:])
-			self.totalCost.append(tmp[:])
+        self.human_pose = Pose()
+        self.human_subscriber = rospy.Subscriber('%s/pose' %self.human, Pose, self.update_human_pose)
+        self.human_pose_history = [ [5, 5, 5, 5, 5], [5, 5, 5, 5, 5]]
+        self.time_stamps = [ -0.4, -0.3, -0.2, -0.1, 0 ]
+        self.slope = [ 0, 0 ]
+        self.intercept = [5.5, 5.5]
 
-		# subscriber for self pose
-		self.subscriber = rospy.Subscriber('%s/pose' % self.turtlename, turtlesim.msg.Pose, self.update_pose)
-		self.pose = turtlesim.msg.Pose()
+        self.vel_msg = Twist()
+        self.publisher = rospy.Publisher('%s/cmd_vel' % self.robot, Twist, queue_size = 1)
+        
+        # cost matrices
+        # social cost from human
+        self.socialCost = []
+        # heuristic cost for goal configuration
+        self.heuristicCost = []
+        # total cost
+        self.totalCost = []
 
-		# publisher for the Twist message
-		self.publisher = rospy.Publisher('%s/cmd_vel' % self.turtlename, geometry_msgs.msg.Twist, queue_size=1)
-		self.msg = geometry_msgs.msg.Twist()
+        # initialize all costs to 0
+        tmp = []
+        for ii in range(0, 100):
+            tmp.append(0)
+        for ii in range(0, 100):
+            self.socialCost.append(tmp[:])
+            self.heuristicCost.append(tmp[:])
+            self.totalCost.append(tmp[:])
 
-		self.flag = True
-		self.rate = rospy.Rate(2)
+        # trajectory for left to right cleaning
+        self.rightward_trajectory = [ [0.5, 1.0], [0.5,9.8], [2,9.8], [2,0.5], [5,0.5], [5,9.8], [6,9.8], [6,0.5], [8,0.5], [8,9.8], [9.8,9.8], [9.8, 0.5]]
 
-	def update_pose(self, data):
-		self.pose = data
-		self.pose.x = round(self.pose.x, 3)
-		self.pose.y = round(self.pose.y, 3)
+        # variable for current goal
+        self.current_counter = 0
+        self.current_goal = self.rightward_trajectory[self.current_counter]
 
+        # variable for current subgoal - initialize to first goal
+        self.current_subgoal = self.rightward_trajectory[self.current_counter]
 
-	# get human pose in self (robot) frame
-	# round the x and y position to prevent "jerky" movement
-	def get_human_transform(self):
-		self.humanTransform = self.transformBuffer.lookup_transform(self.turtlename, 'turtle1', rospy.Time())
-		self.humanTransform.transform.translation.x = round(self.humanTransform.transform.translation.x, 1)
-		self.humanTransform.transform.translation.y = round(self.humanTransform.transform.translation.y, 1)
+        # distance to human flag
+        self.distance_flag = False
 
+        # rospy rate
+        self.start_time = rospy.get_time()
+        self.rate = rospy.Rate(10)
 
-	# helper function to clear the map every iteration
-	def clear_map(self, cost_map):
-		for ii in range(0, len(cost_map)):
-			for jj in range(0, len(cost_map[0])):
-				cost_map[ii][jj] = 0
+    # callback function to update self pose
+    def update_robot_pose(self, data):
+        self.robot_pose = data
+        self.robot_pose.x = round(self.robot_pose.x, 3)
+        self.robot_pose.y = round(self.robot_pose.y, 3)
 
+    # callback function to update human pose
+    def update_human_pose(self, data):
+        self.human_pose = data
+        self.human_pose.x = round(self.human_pose.x, 3)
+        self.human_pose.y = round(self.human_pose.y, 3)
+        self.update_human_pose_history()
+        self.predict_linear_trajectory()
 
-	# calculate the social cost for points around the human
-	def get_social_cost(self):
-		for ii in range(0, len(self.socialCost)):
-			y = float(ii/10.0)
-			for jj in range(0, len(self.socialCost[0])):
-				x = float(jj/10.0)
-				self.socialCost[ii][jj] = 255.0*self.calculate_gaussian_cost(x, y)
-				# print(self.socialCost[ii][jj])
+    # update record of human poses
+    def update_human_pose_history(self):
+        self.human_pose_history[0].pop(0)
+        self.human_pose_history[1].pop(0)
+        self.time_stamps.pop(0)
+        self.human_pose_history[0].append(self.human_pose.x)
+        self.human_pose_history[1].append(self.human_pose.y)
+        self.time_stamps.append(rospy.get_time() - self.start_time)
 
-	
-	def find_max(self, cost_map):
-		max_cost = 0
-		x = 0
-		y = 0
-		for ii in range(0, len(cost_map)):
-			for jj in range(0, len(cost_map[0])):
-				if abs(cost_map[ii][jj]) > max_cost:
-					max_cost = cost_map[ii][jj]
-					x = jj
-					y = ii
+    # function to predict next human pose
+    def predict_linear_trajectory(self):
+        xbar = sum(self.human_pose_history[0]) / len(self.human_pose_history[0])
+        ybar = sum(self.human_pose_history[1]) / len(self.human_pose_history[1])
+        tbar = sum(self.time_stamps) / len(self.time_stamps)
 
-		return (x, y, max_cost)
+        xnum = 0
+        ynum = 0
+        den = 0
+        for i in range(0, len(self.time_stamps)):
+            t1 = self.time_stamps[i] - tbar
+            tx = self.human_pose_history[0][i] - xbar
+            ty = self.human_pose_history[1][i] - ybar
+            xnum += t1*tx
+            ynum += t1*ty
+            den += t1*t1
+        
+        mx = xnum/den
+        my = ynum/den
+        self.slope = [mx, my]
+        self.intercept = [xbar - mx*tbar, ybar - my*tbar]
 
-		
+    # function to clear cost matrices
+    def clear_map(self, cost_map):
+        for ii in range(0, len(cost_map)):
+            for jj in range(0, len(cost_map[0])):
+                cost_map[ii][jj] = 0
 
-	# calculate the social cost for each point based on bivariate gaussian function
-	def calculate_gaussian_cost(self, x, y):
-		mean_x = self.humanTransform.transform.translation.x
-		mean_y = self.humanTransform.transform.translation.y 
-		variance_x = 0.04
-		variance_y = 0.0625
-		g = (((x-mean_x)**2)/(2*variance_x)) + (((y-mean_y)**2)/(2*variance_y)) 
-		p = math.exp(-g)
-		return p
+    # function to calculate social costs
+    def get_social_cost(self):
+        for ii in range(0, len(self.socialCost)):
+            y = float(ii/10.0)
+            for jj in range(0, len(self.socialCost[0])):
+                x = float(jj/10.0)
+                
+                cp0 = 255.0*self.calculate_gaussian(x, y, self.human_pose.x, self.human_pose.y, 0.0625)
+                (xp, yp) = self.predict_trajectory(0.1)
+                cp1 = 0.5*255.0*self.calculate_gaussian(x, y, xp, yp, 0.09375)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp2 = (0.5**2)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.140625)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp3 = (0.5**3)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.210)
+                (xp, yp) = self.predict_trajectory(0.2)
+                cp4 = (0.5**4)*255.0*self.calculate_gaussian(x, y, xp, yp, 0.315)
 
+                self.socialCost[ii][jj] = cp0 + cp1 + cp2 + cp3 + cp4
+                
+    def predict_trajectory(self, time_in_sec):
+        now = rospy.get_time() - self.start_time
+        future = now + time_in_sec
+        x_predict = self.slope[0]*future + self.intercept[0]
+        y_predict = self.slope[1]*future + self.intercept[1]
+        return(x_predict, y_predict)
 
-	# calculate the heuristic cost - euclidean distance
-	def get_heuristic_cost(self, goal_x, goal_y):
-		for ii in range(0, len(self.heuristicCost)):
-			y = round(ii/10.0, 2)
-			for jj in range(0, len(self.heuristicCost[0])):
-				x = round(jj/10.0, 2)
-				distance = math.sqrt((goal_x - x)**2 + (goal_y - y)**2)
-				self.heuristicCost[jj][ii] = 50.0*distance
-		
+    # gaussian function
+    def calculate_gaussian(self, x, y, mean_x, mean_y, variance):
+        g = (((x-mean_x)**2)/(2*variance)) + (((y-mean_y)**2)/(2*variance)) 
+        p = math.exp(-g)
+        return p
 
-	def get_total_cost(self):
-		#self.clear_map(self.totalCost)
-		for ii in range(0, len(self.totalCost)):
-			for jj in range(0, len(self.totalCost[0])):
-				self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj]
+    # function to calculate heuristic cost to current goal
+    def get_heuristic_cost(self):
+        for ii in range(0, len(self.heuristicCost)):
+            y = float(ii/10.0)
+            for jj in range(0, len(self.heuristicCost[0])):
+                x = float(jj/10.0)
+                distance = math.sqrt((self.current_goal[0] - x)**2 + (self.current_goal[1] - y)**2)
+                self.heuristicCost[ii][jj] = 20.0*distance
 
-	def search_neighbours(self):
-		# for points around turtle pick the nn with lowest cost
-		tx = min(max(int(self.pose.x * 10) - 31, 0),68)
-		ty = min(max(int(self.pose.y * 10) - 31, 0),68)
-		
-		min_cost = 1e6
-		min_x = tx
-		min_y = ty
-		for ii in range(1,31):
-			x = tx + ii
-			for jj in range(1, 31):
-				y = ty + jj
-				if (self.totalCost[y][x] < min_cost):
-					min_cost = self.totalCost[y][x]
-					min_x = x 
-					min_y = y 
-		
-		next_x = float(min_y/10.0)
-		next_y = float(min_x/10.0)
-		return (next_x, next_y, min_cost)
+    # function to sum all costs
+    def get_total_cost(self):
+        for ii in range(0, len(self.totalCost)):
+            for jj in range(0, len(self.totalCost[0])):
+                self.totalCost[ii][jj] = self.socialCost[ii][jj] + self.heuristicCost[ii][jj] 
 
+    # function to search for next best subgoal
+    def get_sub_goal(self):
+        tx = min(max(int(self.robot_pose.x * 10) - 16, 0), 68)
+        ty = min(max(int(self.robot_pose.y * 10) - 16, 0), 68)
 
-	# follower function from assignment #2
-	def follower(self, trans):
-		# set angular velocity
-		self.msg.angular.z = math.atan2(trans.transform.translation.y, trans.transform.translation.x)
-		# set linear velocity
-		self.msg.linear.x = 0.5 * math.sqrt(trans.transform.translation.x ** 2 + trans.transform.translation.y ** 2)
+        min_cost = 1e6
+        min_x = tx
+        min_y = ty
+        for ii in range(0,31):
+            row = ty + ii
+            for jj in range(0,31):
+                col = tx + jj
+                # print(row, col, self.totalCost[row][col])
+                if(self.totalCost[row][col] < min_cost):
+                    min_cost = self.totalCost[row][col]
+                    min_row = row
+                    min_col = col 
+        
+        next_x = float(min_col/10.0)
+        next_y = float(min_row/10.0)
+        return(next_x, next_y, min_cost)
 
+    # function to update current goal
+    def get_next_goal(self):
+        self.current_goal = self.rightward_trajectory[self.current_counter]
+        
+        self.current_counter += 1
+        if self.current_counter > 11:
+            self.current_counter = 0    
 
-	# go to specified x and y position within a certain tolerance
-	def go_to_goal(self, goal_x, goal_y, tolerance):
-		
-		distance = math.sqrt((goal_x - self.pose.x)**2 + (goal_y - self.pose.y)**2)
-		
-		if (distance > tolerance):
-			self.msg.linear.x = distance # linear speed is proportional to distance
-			self.msg.angular.z = 4 * (math.atan2(goal_y- self.pose.y, goal_x - self.pose.x) - self.pose.theta)
-		else:
-			self.msg.linear.x = 0
-			self.msg.angular.z = 0
+    # function to calculate distance to current goal
+    def calculate_euclidean(self, goal_x, goal_y):
+        distance = math.sqrt((goal_x - self.robot_pose.x)**2 + (goal_y - self.robot_pose.y)**2)
+        return distance       
 
-	def stop_moving(self):
-		self.msg.linear.x = 0
-		self.msg.angular.z = 0
+    def calculate_to_human(self):
+        distance = math.sqrt((self.human_pose.x - self.robot_pose.x)**2 + (self.human_pose.y - self.robot_pose.y)**2)
+        return distance
 
-	
-	def move(self):
-		while not rospy.is_shutdown():
+    # pid controller to move turtle to (sub)goal
+    def go_to_goal(self):
+        # print('going to goal')
+        distance =  math.sqrt((self.current_subgoal[0] - self.robot_pose.x)**2 + (self.current_subgoal[1] - self.robot_pose.y)**2)
+        self.vel_msg.linear.x = min(1.0, distance) # linear speed is proportional to distance
+        self.vel_msg.angular.z = 4*(math.atan2(self.current_subgoal[1]- self.robot_pose.y, self.current_subgoal[0] - self.robot_pose.x) - self.robot_pose.theta)
 
-			if self.flag:
-
-				self.stop_moving()
-				self.publisher.publish(self.msg)
-				self.flag = False
-				self.rate.sleep()
-
-			try:
-				self.get_human_transform()
-			# exception for error catching
-			except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-				self.rate.sleep()
-				continue
-
-			# self.follower(self.humanTransform)
-			self.get_social_cost()
-			self.get_heuristic_cost(8.5, 8.5)
-			self.get_total_cost()
-			(next_x, next_y, min_cost) = self.search_neighbours()
-			self.go_to_goal(next_x, next_y, 0.01)
-			# self.go_to_goal(5.5, 5.5, 0.01)
-			print(next_x, next_y, min_cost)
-
-			# (max_x, max_y, max_cost) = self.find_max(self.socialCost)
-			# print(max_x, max_y, max_cost)
-
-			# publish the velocity message
-			self.publisher.publish(self.msg)
-			self.flag = True
-			self.rate.sleep()
-
-
+    # set velocity to zero if close to (sub)goal
+    def stop_moving(self):
+        self.vel_msg.linear.x = 0
+        self.vel_msg.angular.z = 0
 
 if __name__ == '__main__':
-	try: 
-		turtle = Robot()
-		turtle.move()
-	except rospy.ROSInterruptException: pass
-	rospy.spin()
+    # create instance of Robot Turtle
+    turtle = Robot()
+    rospy.sleep(2.0)
+    tolerance = 0.05
+    thresh_human = 2.5
+    thresh_cost = 10000
+
+    turtle.get_heuristic_cost()
+    turtle.get_social_cost()
+    turtle.get_total_cost()
+
+    try:
+        counter = 1
+        while not rospy.is_shutdown():
+            
+            # else: turtle.distance_flag = False
+
+            distance_goal = turtle.calculate_euclidean(turtle.current_goal[0], turtle.current_goal[1])
+            if(distance_goal > tolerance):
+                if(turtle.distance_flag):
+
+                    if(counter%10 == 0):
+                        turtle.stop_moving()
+                        turtle.publisher.publish(turtle.vel_msg)
+                        turtle.get_social_cost()
+                        turtle.get_total_cost()
+                        distance_human = turtle.calculate_to_human()
+                        if(distance_human > thresh_human):
+                            turtle.distance_flag = False
+                        turtle.rate.sleep()
+
+                    else:
+                        (sub_x, sub_y, sub_cost) = turtle.get_sub_goal()
+                        turtle.current_subgoal[0] = sub_x
+                        turtle.current_subgoal[1] = sub_y
+                        print(sub_x, sub_y, sub_cost)
+                        if (sub_cost >= thresh_cost):
+                            turtle.stop_moving()
+                        else: turtle.go_to_goal()
+                        turtle.publisher.publish(turtle.vel_msg) 
+                        turtle.rate.sleep()
+                else:
+                    turtle.current_subgoal = turtle.current_goal
+
+                    turtle.go_to_goal()
+                    turtle.publisher.publish(turtle.vel_msg) 
+                    distance_human = turtle.calculate_to_human()
+                    if(distance_human <= thresh_human):
+                        turtle.distance_flag = True
+                    turtle.rate.sleep()
+
+            elif(distance_goal <= tolerance):
+                turtle.get_next_goal()
+                turtle.get_heuristic_cost()
+                turtle.rate.sleep()
+            
+            counter += 1
+            if counter >= 10:
+                counter = 0
+        
+        rospy.spin()
+    
+    except rospy.ROSInterruptException:
+        pass
